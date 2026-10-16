@@ -30,3 +30,5 @@ Thumbs.db
 *.log
 tmp/
 temp/
+# Generated validation reports
+reports/*.json
