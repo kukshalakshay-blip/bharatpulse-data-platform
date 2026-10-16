@@ -32,3 +32,5 @@ tmp/
 temp/
 # Generated validation reports
 reports/*.json
+# Local datasets and generated processing outputs
+data/
