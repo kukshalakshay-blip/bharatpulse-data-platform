@@ -51,8 +51,18 @@ def test_successful_transformation(tmp_path):
         "min_price",
         "max_price",
         "modal_price",
+        "source_file",
+        "processed_at_utc",
+        "price_review_required",
     ]
 
+    # Verify data lineage.
+    assert output["source_file"].iloc[0] == "input.csv"
+    assert output["processed_at_utc"].notna().all()
+
+    # Verify suspicious-price flag.
+    assert output["price_review_required"].dtype == bool
+    assert not output["price_review_required"].any()
 
 def test_missing_input_file_fails(tmp_path):
     input_path = tmp_path / "missing.csv"

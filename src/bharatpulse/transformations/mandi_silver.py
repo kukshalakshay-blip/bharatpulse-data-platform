@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -31,6 +32,24 @@ PRICE_COLUMNS = [
     "modal_price",
 ]
 
+SUSPICIOUS_PRICE_THRESHOLD = 100_000
+
+EXPECTED_SILVER_COLUMNS = [
+    "state",
+    "district",
+    "market",
+    "commodity",
+    "variety",
+    "grade",
+    "arrival_date",
+    "min_price",
+    "max_price",
+    "modal_price",
+    "source_file",
+    "processed_at_utc",
+    "price_review_required",
+]
+
 
 def transform_mandi_csv(
     input_path: str | Path,
@@ -40,6 +59,8 @@ def transform_mandi_csv(
     Transform the raw Mandi CSV into a standardized Silver CSV.
 
     The raw source is never modified.
+
+    Adds data lineage and a flag for prices requiring review.
 
     Returns a summary of the transformation.
     """
@@ -54,12 +75,13 @@ def transform_mandi_csv(
 
     # Read the raw source without modifying it.
     df = pd.read_csv(input_path)
+    input_rows = len(df)
 
-    expected_columns = list(SOURCE_TO_SILVER_COLUMNS)
+    expected_source_columns = list(SOURCE_TO_SILVER_COLUMNS)
 
     missing_columns = [
         column
-        for column in expected_columns
+        for column in expected_source_columns
         if column not in df.columns
     ]
 
@@ -69,7 +91,8 @@ def transform_mandi_csv(
         )
 
     # Select expected columns and rename them.
-    df = df[expected_columns].rename(
+    # Unexpected source columns are deliberately excluded.
+    df = df[expected_source_columns].rename(
         columns=SOURCE_TO_SILVER_COLUMNS
     )
 
@@ -119,6 +142,25 @@ def transform_mandi_csv(
             "Modal price falls outside the minimum/maximum range."
         )
 
+    # Add data lineage.
+    df["source_file"] = input_path.name
+
+    df["processed_at_utc"] = (
+        datetime.now(timezone.utc).isoformat()
+    )
+
+    # Flag unusually high prices for review.
+    # A flag does not automatically mean a price is incorrect.
+    df["price_review_required"] = (
+        df["max_price"] > SUSPICIOUS_PRICE_THRESHOLD
+    )
+
+    # Enforce the Silver schema and column order.
+    if list(df.columns) != EXPECTED_SILVER_COLUMNS:
+        raise ValueError(
+            f"Unexpected Silver schema: {list(df.columns)}"
+        )
+
     # Create the output directory if necessary.
     output_path.parent.mkdir(
         parents=True,
@@ -132,11 +174,15 @@ def transform_mandi_csv(
         date_format="%Y-%m-%d",
     )
 
+    # Return a processing summary.
     return {
         "input_file": input_path.name,
         "output_file": str(output_path),
-        "input_rows": len(pd.read_csv(input_path)),
+        "input_rows": input_rows,
         "output_rows": len(df),
         "output_columns": list(df.columns),
+        "suspicious_prices": int(
+            df["price_review_required"].sum()
+        ),
         "status": "SUCCESS",
     }
