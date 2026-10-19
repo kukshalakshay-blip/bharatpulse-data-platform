@@ -34,3 +34,6 @@ temp/
 reports/*.json
 # Local datasets and generated processing outputs
 data/
+
+# Local datasets and generated processing outputs
+data/
