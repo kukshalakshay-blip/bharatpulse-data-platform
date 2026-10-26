@@ -10,7 +10,10 @@ from typing import Any
 
 from azure.core.exceptions import ResourceExistsError
 
-from src.bharatpulse.ingestion.azure_storage import upload_file_to_bronze
+from src.bharatpulse.ingestion.azure_storage import (
+    upload_file_to_bronze,
+    verify_existing_bronze_file,
+)
 from src.bharatpulse.transformations.mandi_silver import transform_mandi_csv
 
 
@@ -35,25 +38,39 @@ def run_mandi_pipeline(
 
     logger.info("Starting Mandi pipeline for %s", source_path.name)
 
-    # Stage 1: Upload the raw source to Bronze.
-    try:
-        bronze_result = upload_file_to_bronze(
-            local_file_path=source_path,
-            overwrite=False,
-        )
-    except ResourceExistsError:
+        # Stage 1: Verify or upload the raw source to Bronze.
+    bronze_result = verify_existing_bronze_file(source_path)
+
+    if bronze_result is None:
         logger.info(
-            "Bronze object already exists. Verifying existing content."
+            "Bronze object does not exist. Uploading source file."
         )
 
-        # The ingestion function deliberately refuses overwrites.
-        # Do not upload again or replace existing raw data.
-        # A separate verification function will be added before
-        # enabling automatic reuse of existing Bronze objects.
-        raise RuntimeError(
-            "Bronze object already exists. Pipeline stopped safely; "
-            "verify its checksum before rerunning."
-        )
+        try:
+            bronze_result = upload_file_to_bronze(
+                local_file_path=source_path,
+                overwrite=False,
+            )
+        except ResourceExistsError:
+            # Another process may have uploaded the object after
+            # our initial verification.
+            logger.info(
+                "Bronze object appeared during upload. "
+                "Verifying existing content."
+            )
+
+            bronze_result = verify_existing_bronze_file(source_path)
+
+            if bronze_result is None:
+                raise RuntimeError(
+                    "Bronze object disappeared during the upload "
+                    "race condition. Rerun the pipeline."
+                )
+
+    logger.info(
+        "Bronze stage completed with status: %s",
+        bronze_result["status"],
+    )
 
     # Stage 2: Transform the local source into Silver.
     silver_result = transform_mandi_csv(
