@@ -14,15 +14,19 @@ from src.bharatpulse.ingestion.azure_storage import (
     upload_file_to_bronze,
     verify_existing_bronze_file,
 )
-from src.bharatpulse.transformations.mandi_silver import transform_mandi_csv
-
+from src.bharatpulse.transformations.mandi_silver import (
+    transform_mandi_outputs,
+)
 
 logger = logging.getLogger(__name__)
-
 
 def run_mandi_pipeline(
     input_path: str | Path,
     silver_output_path: str | Path,
+    silver_parquet_output_path: str | Path = (
+        "data/silver/food_prices/mandi_prices/"
+        "mandi_prices_silver.parquet"
+    ),
 ) -> dict[str, Any]:
     """
     Run Bronze ingestion followed by Silver transformation.
@@ -32,13 +36,13 @@ def run_mandi_pipeline(
     """
     source_path = Path(input_path)
     silver_path = Path(silver_output_path)
-
+    parquet_path = Path(silver_parquet_output_path)
     if not source_path.is_file():
         raise FileNotFoundError(f"Input CSV not found: {source_path}")
 
     logger.info("Starting Mandi pipeline for %s", source_path.name)
 
-        # Stage 1: Verify or upload the raw source to Bronze.
+            # Stage 1: Verify or upload the raw source to Bronze.
     bronze_result = verify_existing_bronze_file(source_path)
 
     if bronze_result is None:
@@ -72,10 +76,11 @@ def run_mandi_pipeline(
         bronze_result["status"],
     )
 
-    # Stage 2: Transform the local source into Silver.
-    silver_result = transform_mandi_csv(
+        # Stage 2: Generate CSV and Parquet from one DataFrame.
+    silver_result = transform_mandi_outputs(
         input_path=source_path,
-        output_path=silver_path,
+        csv_output_path=silver_path,
+        parquet_output_path=parquet_path,
     )
 
     result = {
@@ -99,10 +104,13 @@ def main() -> None:
     )
 
     parser.add_argument(
-        "--input",
-        required=True,
-        help="Path to the original Mandi CSV.",
-    )
+    "--parquet-output",
+    default=(
+        "data/silver/food_prices/mandi_prices/"
+        "mandi_prices_silver.parquet"
+    ),
+    help="Destination path for the Silver Parquet file.",
+)
 
     parser.add_argument(
         "--silver-output",
@@ -125,12 +133,12 @@ def main() -> None:
     )
 
     result = run_mandi_pipeline(
-        input_path=args.input,
-        silver_output_path=args.silver_output,
-    )
+    input_path=args.input,
+    silver_output_path=args.silver_output,
+    silver_parquet_output_path=args.parquet_output,
+)
 
     print(json.dumps(result, indent=2, default=str))
-
 
 if __name__ == "__main__":
     main()
